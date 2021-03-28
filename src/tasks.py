@@ -1,9 +1,8 @@
 from copy import deepcopy
-from typing import List
-from .components import COMPONENTS, Component, ComponentContextProxy
-from .path import evaluator
+from .registry import TASK_TYPES
 from . import utils
-
+from .components import Component, COMPONENTS
+from .path import evaluator
 
 jsonpath = evaluator()
 
@@ -16,14 +15,13 @@ __all__ = (
 class Task:
     _requires_input = False
 
-    def __init__(self, context_interface, task, repos, call_stack_interface=None):
+    def __init__(self, execution_context, task):
         self._task = task
-        self._context_interface = context_interface
-        self._repos = repos
-        self._local_context = deepcopy(self._context_interface.get_head())
-        self._call_stack_interface = call_stack_interface
+        self._execution_context = execution_context
         self._complete = False
         self._exit_reason = "success"
+        if execution_context is not None:
+            execution_context.register_task(self)
 
     @property
     def name(self):
@@ -33,27 +31,23 @@ class Task:
     def requires_input(self):
         return self._requires_input and not self._complete
 
-    def get_new_context(self):
-        return self._local_context
-
-    def process(self):
-        stack = self._context_interface.get()
-        self._context_interface.update(stack.update(self.get_new_context()))
+    def publish_result(self):
+        self._execution_context.update_result(self.result)
 
 
 class Screen(Task):
     _requires_input = True
 
-    def __init__(self, context_interface, task, repos, call_stack_interface):
-        super().__init__(context_interface, task, repos, call_stack_interface=call_stack_interface)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._components = self._process_component_lookups()
         self._events = []
 
     def _init_component(self, component_config: dict):
         component_config["add_event"] = lambda e: self._events.append(e)
-        return ComponentContextProxy(
-            context_interface=self._context_interface,
-            component=COMPONENTS[component_config["type"]](repos=self._repos, **component_config),
+        return COMPONENTS[component_config["type"]](
+            execution_context=self._execution_context,
+            **component_config,
         )
 
     def _process_component_lookups(self) -> list[Component]:
@@ -62,26 +56,37 @@ class Screen(Task):
             for lookup in row:
                 name = lookup["name"]
                 components[name] = self._init_component(
-                    component_config=self._repos.components[name] | lookup
+                    component_config=(
+                        self._execution_context.repos.components[name] | lookup
+                    )
                 )
         return components
 
     def get_components(self) -> dict[str, Component]:
-        return dict(filter(lambda c: c[1].show(), self._components.items()))
+        return dict(
+            filter(
+                lambda c: c[1].show(),
+                self._components.items(),
+            )
+        )
 
     def set(self, field, value):
         components = self.get_components()
         components[field].set_value(value)
+        self.publish_result()
 
     def click(self, button_name):
         components = self.get_components()
         components[button_name].click()
+        self.publish_result()
         self._process_events()
 
     @property
     def errors(self):
         return {
-            name: component.errors for name, component in self.get_components().items() if component.errors
+            name: component.errors
+            for name, component in self.get_components().items()
+            if component.errors
         }
 
     @property
@@ -109,13 +114,7 @@ class Screen(Task):
             elif event.action == "next":
                 self._complete = True
             elif event.action == "update":
-                self._local_context = utils.deepmerge(self._local_context, event.payload)
-
-    def get_new_context(self):
-        return utils.deepmerge(
-            super().get_new_context(),
-            self.result,
-        )
+                self._execution_context.update_result(event.payload)
 
 
 class JsonRpc(Task):
@@ -124,6 +123,7 @@ class JsonRpc(Task):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._payload = self._get_playload()
+        self._result = {}
 
     def get_endpoint(self):
         return self._task["url"]
@@ -133,7 +133,7 @@ class JsonRpc(Task):
             value = instruction["value"]
         elif "key" in instruction:
             value = jsonpath.get_one(
-                context=self._context_interface.get_head(),
+                context=self._execution_context.state,
                 path=instruction["key"],
             )
         else:
@@ -158,15 +158,15 @@ class JsonRpc(Task):
         return super().requires_input
 
     def set_result(self, result):
-        self._local_context = jsonpath.set(
-            context=self._local_context,
+        self._result = jsonpath.set(
+            context={},
             path=self._task["destination_path"],
             value=result,
         )
 
-    # def get_new_context(self):
-    #     context = super().get_new_context()
-    #     for
+    @property
+    def result(self):
+        return self._result
 
 
 class Update(Task):
@@ -189,34 +189,9 @@ class Flow(Task):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._task_iter = None
-        if self._call_stack_interface is not None:
-            self._push_call_stack()
 
-    def _create_context(self):
-        self._context_interface.push(self._local_context)
-
-    def _destroy_context(self):
-        self._context_interface.pop()
-
-    def _push_call_stack(self):
-        if self._call_stack_interface.get_head() != self:
-            self._call_stack_interface.push(self)
-
-    def _pop_call_stack(self):
-        if self._call_stack_interface.get_head() == self:
-            self._call_stack_interface.pop()
-
-    def set_call_stack_interface(self, call_stack_interface):
-        self._call_stack_interface = call_stack_interface
-        self._push_call_stack()
-
-    def _get_task_instance(self, task):
-        return TASK_TYPES[task["type"]](
-            task=task,
-            repos=self._repos,
-            context_interface=self._context_interface,
-            call_stack_interface=self._call_stack_interface,
-        )
+    def _get_task_instance(self, task, execution_context):
+        return TASK_TYPES[task["type"]](task=task, execution_context=execution_context)
 
     def _process_instruction(self, instruction, context):
         if "value" in instruction:
@@ -231,38 +206,36 @@ class Flow(Task):
 
         return jsonpath.set(context={}, path=instruction["result_key"], value=value)
 
-    def get_new_context(self):
+    @property
+    def result(self):
         result = {}
         for path in self._task["result_paths"]:
             # Note _process_instruction uses local_context which is the
             # the context stack within the task
             result = utils.deepmerge(result, self._process_instruction(path))
 
-        return jsonpath.set(
-            # this will likely be the parent stack at this point
-            context=self._context_interface.get_head(),
-            path=self._task["destination_path"],
-            value=result,
-        )
+        return result
 
     def _input_task_iter(self, interupt_tasks=None):
         if interupt_tasks is None:
             interupt_tasks = set()
 
-        self._create_context()
         for task in self._task["tasks"]:
-            inst = self._get_task_instance(task)
-            if inst.name in interupt_tasks:
-                yield inst
-            while inst.requires_input:
-                yield inst
-            inst.process()
-            if isinstance(inst, Event) and inst._task["action"] == "break":
-                break
+            with self._execution_context.new_context() as context:
+                inst = self._get_task_instance(task, context)
+                if inst.name in interupt_tasks:
+                    yield inst
+                while inst.requires_input:
+                    yield inst
 
-        self._destroy_context()
+                if (
+                    isinstance(inst, TASK_TYPES["event"])
+                    and inst._task["action"] == "break"
+                ):
+                    break
+
+            self._execution_context.update_state(context.result)
         self._complete = True
-        self._pop_call_stack()
 
     def get_task(self, interupt_tasks=None):
         if self._task_iter is None:
@@ -286,16 +259,18 @@ class Event(Task):
     pass
 
 
-TASK_TYPES = {
-    "screen": Screen,
-    "jsonrpc": JsonRpc,
-    "flow": Flow,
-    "while_loop": WhileLoop,
-    "for_loop": ForLoop,
-    "update": Update,
-    "redirect": Redirect,
-    "condition": Condition,
-    "domain_params": DomainParam,
-    "clear_domain_params": ClearDomainParams,
-    "event": Event,
-}
+TASK_TYPES.update(
+    {
+        "screen": Screen,
+        "jsonrpc": JsonRpc,
+        "flow": Flow,
+        "while_loop": WhileLoop,
+        "for_loop": ForLoop,
+        "update": Update,
+        "redirect": Redirect,
+        "condition": Condition,
+        "domain_params": DomainParam,
+        "clear_domain_params": ClearDomainParams,
+        "event": Event,
+    }
+)

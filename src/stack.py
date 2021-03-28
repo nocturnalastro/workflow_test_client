@@ -1,16 +1,19 @@
+from copy import deepcopy
 from .exceptions import InvalidEmptyStackOperation
+from .utils import deepmerge
 
 
 class Stack:
-    def __init__(self, head, tail=None):
+    def __init__(self, head, tail=None, merge_strat=deepmerge):
         self.head = head
         self.tail = EmptyStack() if tail is None else tail
+        self._merge_strat = merge_strat
 
     def push(self, item):
         return self.__class__(item, self)
 
-    def update(self, head):
-        self.head = head
+    def update(self, update):
+        self.head = self._merge_strat(self.head, update)
         return self
 
     def pop(self):
@@ -46,11 +49,14 @@ class VirtualStack:
     def get(self):
         return self.stack
 
-    def update(self, stack):
-        self.stack = stack
+    def update(self, value):
+        self.stack = self.stack.update(value)
 
     def push(self, value):
-        self.update(self.stack.push(value))
+        self.stack = self.stack.push(value)
 
     def pop(self):
         self.stack = self.stack.pop()
+
+    def push_head_copy(self):
+        self.push(self.get_head())

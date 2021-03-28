@@ -1,11 +1,9 @@
 from collections import namedtuple
-import json
-from typing import Any, ForwardRef, Optional, Type
-
+from typing import Any, Optional
+from .context import ExecutionContext
 from .validators import Validator
 from .exceptions import CantClickDisabled
 from .path import evaluator
-from .stack import VirtualStack
 
 __all__ = ("COMPONENTS", "Component")
 
@@ -15,9 +13,12 @@ jsonpath = evaluator()
 
 
 class Component:
+    _is_value_component = False
+    _is_button = False
+
     def __init__(
         self,
-        repos,
+        execution_context,
         name,
         type,
         preconditions=None,
@@ -28,84 +29,50 @@ class Component:
         self.task_type: str = type
         self.destination_path: str = destination_path
         self.preconditions: list[Validator] = (
-            [self._process_validator(repos=repos, **p) for p in preconditions] if preconditions else []
+            [self._process_validator(p) for p in preconditions] if preconditions else []
         )
         self.add_event = add_event
+        self._execution_context = execution_context
 
-    def _process_validator(self, repos, validator: str):
-        return Validator(repos=repos, validator_name=validator)
+    def _process_validator(self, validator: str):
+        return Validator(
+            validator_name=validator,
+            execution_context=self._execution_context,
+            component=self,
+        )
 
     def _get_value(self, validator: Validator, context: dict):
         return validator.get_value(context=context, component=self)
 
     def _eval_validators(self, context, validators: list[Validator]):
-        return all(validator.validate(component=self, context=context) for validator in validators)
+        return all(
+            validator.validate(component=self, context=context)
+            for validator in validators
+        )
 
-    def validate(self, context: dict) -> None:
+    def validate(self) -> None:
         pass
 
-    def show(self, context):
-        return self._eval_validators(context, self.preconditions)
-
-
-class ComponentContextProxy:
-
-    _component: Component
-    _context_interface: VirtualStack
-
-    def __init__(self, context_interface: VirtualStack, component: Component):
-        self._component = component
-        self._context_interface = context_interface
-
-    @property
-    def name(self) -> str:
-        return self._component.name
+    def show(self):
+        return self._eval_validators(self._execution_context.state, self.preconditions)
 
     @property
     def is_value_component(self):
-        return isinstance(self._component, ValueComponent)
+        return self._is_value_component
 
     @property
     def is_button(self):
-        return isinstance(self._component, Button)
-
-    @property
-    def destination_path(self):
-        return self._component.destination_path
-
-    @property
-    def errors(self):
-        return self._component.errors
-
-    def validate(self) -> None:
-        self._component.validate(context=self._context_interface.get_head())
-
-    def get_value(self) -> Any:
-        return self._component.get_value()
-
-    def set_value(self, value: Any) -> None:
-        self._component.set_value(value)
-
-    def disabled(self) -> bool:
-        return self._component.disabled(context=self._context_interface.get_head())
-
-    def click(self) -> None:
-        self._component.click(context=self._context_interface.get_head())
-
-    def show(self) -> bool:
-        return self._component.show(context=self._context_interface.get_head())
-
-    def __repr__(self) -> str:
-        return f"<Proxy for {repr(self._component).lstrip('<').rstrip('>')}>"
+        return self._is_button
 
 
 class ValueComponent(Component):
     _value: Any
+    _is_value_component = True
 
-    def __init__(self, repos, validator=None, **kwargs):
-        super().__init__(repos=repos, **kwargs)
+    def __init__(self, execution_context, validator=None, **kwargs):
+        super().__init__(execution_context=execution_context, **kwargs)
         if validator:
-            self.validators = [self._process_validator(repos, v) for v in validator]
+            self.validators = [self._process_validator(v) for v in validator]
         else:
             self.validators = []
         self._value = None
@@ -115,11 +82,11 @@ class ValueComponent(Component):
     def errors(self):
         return self._errors.copy()
 
-    def validate(self, context: dict) -> None:
+    def validate(self) -> None:
         self._errors.clear()
         for validator in self.validators:
-            if not validator.validate(component=self, context=context):
-                msg = validator.get_message(component=self, context=context)
+            if not validator.validate():
+                msg = validator.get_message()
                 self._errors.append(msg)
 
     def get_value(self) -> Any:
@@ -128,10 +95,10 @@ class ValueComponent(Component):
     def set_value(self, value: Any) -> None:
         self._value = value
 
-    def disabled(self, context: dict) -> bool:
+    def disabled(self) -> bool:
         raise NotImplementedError()
 
-    def click(self, context: dict) -> None:
+    def click(self) -> None:
         raise NotImplementedError()
 
 
@@ -171,17 +138,19 @@ class Clickable(ValueComponent):
     def set_value(self, value: Any):
         raise NotImplementedError()
 
-    def disabled(self, context):
+    def disabled(self):
         return False
 
-    def click(self, context):
-        if not self.disabled(context):
+    def click(self):
+        if not self.disabled():
             self._value = self.value
         else:
             raise CantClickDisabled()
 
 
 class Button(Clickable):
+    _is_button = True
+
     def __init__(
         self,
         action,
@@ -201,19 +170,23 @@ class Button(Clickable):
         self.show_confirmation = show_confirmation
         self.load_values = load_values
         if disabling_validators:
-            self.disabling_validators = [self._process_validator(v) for v in disabling_validators]
+            self.disabling_validators = [
+                self._process_validator(v) for v in disabling_validators
+            ]
         else:
             self.disabling_validators = []
 
-    def disabled(self, context):
-        return any(v.validate(context=context, component=self) for v in self.disabling_validators)
+    def disabled(self):
+        return any(v.validate() for v in self.disabling_validators)
 
     def _get_payload(self) -> Optional[dict]:
         if self.destination_path and self._value:
-            return jsonpath.set(context={}, path=self.destination_path, value=self._value)
+            return jsonpath.set(
+                context={}, path=self.destination_path, value=self._value
+            )
 
-    def click(self, context):
-        super().click(context)
+    def click(self):
+        super().click()
         if payload := self._get_payload():
             self.add_event(Event(action="update", payload=payload))
         self.add_event(Event(action=self.action, payload={}))
@@ -355,7 +328,9 @@ class Selection(ValueComponent):
         self.style = style
         self.label = label
         self.is_required = is_required
-        self.options_key, self.options_values = self.get_options(options_key, options_values)
+        self.options_key, self.options_values = self.get_options(
+            options_key, options_values
+        )
 
 
 class Image(Component):

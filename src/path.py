@@ -32,7 +32,9 @@ class JSONPath:
 
             return _set_value
 
-        node_expr_type = ".".join([node_expr.__class__.__module__, node_expr.__class__.__name__])
+        node_expr_type = ".".join(
+            [node_expr.__class__.__module__, node_expr.__class__.__name__]
+        )
         raise UnhandledSetter(f"No setter for type {node_expr_type}")
 
     def set(self, context, path, value):

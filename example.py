@@ -1,7 +1,4 @@
-import json
-
-wf_dict = json.loads(
-    """
+workflow_str = """
     {
         "validators": {
             "not_zero_length": {
@@ -136,13 +133,12 @@ wf_dict = json.loads(
         "hash": "ee6c8685802a96d12ea474d97ad26c252fb3739be2e8a0c2fcfd2a9f8beb9eff10a7ae22cd7cc8d61d1f14c2f624629b6c6284b25853f76fccf28a01469789d8",
         "context": {}
     }"""
-)
 
-from src.workflow import Workflow, Repos
 
-repos = Repos(wf_dict["components"], validators=wf_dict["validators"], flows=wf_dict["flows"])
-w = Workflow(wf_dict["starting_flow"], repos, wf_dict["context"])
-w.set_task_breakpoint("SaveMessage")
+from src.client import TestClient
+
+w = TestClient(workflow_str)
+# # w.set_task_breakpoint("SaveMessage")
 t = w.get_task()
 t_old = t
 t = w.get_task()
@@ -157,7 +153,3 @@ t.click("submit_button")
 t = w.get_task()
 assert t != t_old
 t.click("next_button_next_primary_save_message_save_true_buttons")
-t_old = t
-t = w.get_task()
-assert t != t_old
-
