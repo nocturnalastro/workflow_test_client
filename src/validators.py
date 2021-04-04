@@ -6,7 +6,7 @@ jsonpath = evaluator()
 
 
 class Validator:
-    def __init__(self, validator_name, execution_context, component):
+    def __init__(self, validator_name, execution_context, component=None):
         self._execution_context = execution_context
         self._component = component
         self._config = self._execution_context.repos.validators[validator_name]
@@ -15,6 +15,8 @@ class Validator:
     def _get_value(self, context: dict, component):
         if self._config.get("value_path"):
             return jsonpath.get(context=context, path=self._config["value_path"])
+        if component is None:
+            raise ValueError("No value_path for none component validator")
         return component.get_value()
 
     def _get_validator_value(self, context):
