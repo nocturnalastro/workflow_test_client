@@ -270,14 +270,16 @@ class Flow(Task):
                 if inst.name in interupt_tasks:
                     yield inst
                 while inst.requires_input:
-                    yield inst.run()
+                    yield inst
 
-                if (
-                    isinstance(inst, TASK_TYPES["event"])
-                    and inst._task["action"] == "break"
-                ):
-                    self._actions.append("break")
-                    break
+                inst.run()
+
+                # if (
+                #     isinstance(inst, TASK_TYPES["event"])
+                #     and inst._task["action"] == "break"
+                # ):
+                #     self._actions.append("break")
+                #     break
 
             # Add task result to flow context
             self._execution_context.update_state(context.result)
