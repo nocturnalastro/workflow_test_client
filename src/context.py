@@ -4,12 +4,20 @@ from .utils import deepmerge
 
 
 class ExecutionContext:
-    def __init__(self, initial_state, repos, flow=None, stack_handle=None):
+    def __init__(
+        self,
+        initial_state,
+        repos,
+        event_handler,
+        flow=None,
+        stack_handle=None,
+    ):
         self._state = initial_state
         self.repos = repos
         self._result = {}
         self.flow = flow
         self._stack_handle = stack_handle
+        self._event_handler = event_handler
 
     def __enter__(self):
         return self
@@ -40,6 +48,7 @@ class ExecutionContext:
             repos=self.repos,
             flow=self.flow,
             stack_handle=self._stack_handle,
+            event_handler=self._event_handler,
         )
         self._stack_handle.push(context)
         return context
@@ -47,3 +56,6 @@ class ExecutionContext:
     def register_task(self, task):
         if isinstance(task, TASK_TYPES["flow"]):
             self.flow = task
+
+    def register_event(self, type, data):
+        self._event_handler(type, data)

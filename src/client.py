@@ -30,6 +30,7 @@ class TestClient:
                 validators=parts.validators,
                 flows=parts.flows,
             ),
+            event_handler=self._handle_event,
         )
 
         TASK_TYPES["flow"](
@@ -39,6 +40,10 @@ class TestClient:
 
         self.context_stack = VirtualStack(Stack(self._initial_context))
         self._initial_context.register_stack_handle(self.context_stack)
+
+    def _handle_event(self, type, data):
+        if type == "redirect":
+            self._load_workflow(data["url"])
 
     def get_task(self):
         while True:  # Keep doing up the call stack until we reach the end
