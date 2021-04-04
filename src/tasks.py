@@ -364,13 +364,10 @@ class Event(Task):
 
 
 class Redirect(Task):
-    # By the fact im not sure how this should behave
-    # means I think it shouldn't be in the core
-    # perhaps in a http addons module?
-    # the addon could inject redirect into
-    # the namespace of the core stuff like a
-    # plugin
     task_type = "redirect"
+
+    def run(self):
+        self._execution_context.register_event("redirect", {"url": self._task["url"]})
 
 
 class Condition:
@@ -402,8 +399,8 @@ TASK_TYPES.update(
         "update": Update,
         # "condition": Condition,
         "event": Event,
+        "redirect": Redirect,
         # ---------------#
-        # "redirect": Redirect,
         # "domain_params": DomainParam,
         # "clear_domain_params": ClearDomainParams,
     }
