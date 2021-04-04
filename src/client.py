@@ -3,8 +3,9 @@ from collections import namedtuple
 from .exceptions import InvalidEmptyStackOperation
 from .parser import json_parser
 from .stack import Stack, VirtualStack
-from .tasks import TASK_TYPES, Flow
+from .tasks import TASK_TYPES
 from .context import ExecutionContext
+from .server import MockServerErrorResponce
 
 Repos = namedtuple("Repos", ("components", "validators", "flows"))
 
@@ -18,6 +19,8 @@ class TestClient:
 
     def _load_workflow(self, url):
         self.raw_workflow = self._server.get(url)
+        if isinstance(self.raw_workflow, MockServerErrorResponce):
+            raise self.raw_workflow
         self._initialise_flow(self._parser(self.raw_workflow))
 
     def _initialise_flow(self, parts):
