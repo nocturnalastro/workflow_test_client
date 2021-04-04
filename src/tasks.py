@@ -188,6 +188,7 @@ class DomainParam:
 class Flow(Task):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._task |= self._execution_context.repos.flows[self._task["name"]]
         self._task_iter = None
 
     def _get_task_instance(self, task, execution_context):

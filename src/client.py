@@ -27,7 +27,7 @@ class TestClient:
 
         TASK_TYPES["flow"](
             execution_context=self._initial_context,
-            task=parts.flows[parts.starting_flow],
+            task={"name": parts.starting_flow, "type": "flow"},
         )
 
         self.context_stack = VirtualStack(Stack(self._initial_context))
