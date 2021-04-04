@@ -233,6 +233,7 @@ class Flow(Task):
         self._task_names = [
             f"{self._task['name']}.{t['name']}" for t in self._task["tasks"]
         ]
+        self._config = self._task["config"]
 
     def _get_task_instance(self, task, execution_context):
         return TASK_TYPES[task["type"]](task=task, execution_context=execution_context)
@@ -252,12 +253,11 @@ class Flow(Task):
 
     @property
     def result(self):
-        result = {}
-        for path in self._task["result_paths"]:
+        result = deepcopy(self._config.get("result", {}))
+        for path in self._config.get("result_paths", []):
             # Note _process_instruction uses local_context which is the
             # the context stack within the task
             result = utils.deepmerge(result, self._process_instruction(path))
-
         return result
 
     def _input_task_iter(self, interupt_tasks=None):
@@ -295,7 +295,7 @@ class Flow(Task):
 class WhileLoop(Flow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._loop_config = self._task["config"]
+
         self._conditions = [
             self._process_validator(p) for p in self._loop_config["conditions"]
         ]
@@ -303,10 +303,12 @@ class WhileLoop(Flow):
 
     @property
     def result(self):
+        if not self._config.get("destination_path"):
+            return {}
         return jsonpath.set(
             context={},
             path=self._loop_config["destination_path"],
-            value=self.self._result,
+            value=self._result,
         )
 
     def _input_task_iter(self, interupt_tasks=None):
@@ -324,21 +326,22 @@ class WhileLoop(Flow):
 class ForLoop(Flow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._loop_config = self._task["config"]
         self._result = []
 
     @property
     def result(self):
+        if not self._config.get("destination_path"):
+            return {}
         return jsonpath.set(
             context={},
-            path=self._loop_config["destination_path"],
-            value=self.self._result,
+            path=self._config["destination_path"],
+            value=self._result,
         )
 
     def _get_loop_values(self):
         return jsonpath.get_one(
             context=self._execution_context.state,
-            path=self._loop_config["iterable_path"],
+            path=self._config["iterable_path"],
         )
 
     def _input_task_iter(self, interupt_tasks=None):
