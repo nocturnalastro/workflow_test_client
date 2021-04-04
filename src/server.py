@@ -22,7 +22,7 @@ class MockServer:
         key = (url, method)
         if key in self._endpoints:
             return self._endpoints[key](args)
-        return MockServerErrorResponce(
+        raise MockServerErrorResponce(
             f"Handler for {url} not found for method {method}"
         )
 
