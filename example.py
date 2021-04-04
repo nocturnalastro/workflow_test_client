@@ -136,12 +136,13 @@ workflow_str = """
 
 
 from src.client import TestClient
-from src.server import MockServer
+from src.server import MockServer, Methods
 
-workflow_url = "/example"
+workflow_url = "/api/quickstart"
+
 
 s = MockServer()
-s.add_workflow(workflow_url, workflow_str)
+s.register_handler(workflow_url, Methods.GET, lambda _: workflow_str)
 
 w = TestClient(s, workflow_url)
 # # w.set_task_breakpoint("SaveMessage")
