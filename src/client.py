@@ -10,12 +10,18 @@ Repos = namedtuple("Repos", ("components", "validators", "flows"))
 
 
 class TestClient:
-    def __init__(self, workflow, workflow_parser=json_parser):
-        self.raw_workflow = workflow
-        parts = workflow_parser(workflow)
+    def __init__(self, mock_server, workflow_url, workflow_parser=json_parser):
+        self._server = mock_server
+        self._parser = workflow_parser
         self._interupt_tasks = set()
-        self._starting_flow = parts.starting_flow
+        self._load_workflow(workflow_url)
 
+    def _load_workflow(self, url):
+        self.raw_workflow = self._server.get(url)
+        self._initialise_flow(self._parser(self.raw_workflow))
+
+    def _initialise_flow(self, parts):
+        self._starting_flow = parts.starting_flow
         self._initial_context = ExecutionContext(
             initial_state=parts.context,
             repos=Repos(
