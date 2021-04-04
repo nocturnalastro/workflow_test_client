@@ -11,9 +11,13 @@ class NotFoundInContext(KeyError):
 
 
 class JSONPath:
-    @staticmethod
-    def get(context, path):
-        return [d.value for d in parse(path).find(context)]
+    def _get_expr(self, path):
+        if isinstance(path, jsonpath.Child):
+            return path
+        return parse(path)
+
+    def get(self, context, path):
+        return [d.value for d in self._get_expr(path).find(context)]
 
     def get_one(self, context, path):
         values = self.get(context, path)
@@ -39,8 +43,10 @@ class JSONPath:
 
     def set(self, context, path, value):
         context = deepcopy(context)
-        expr = parse(path)
+        expr = self._get_expr(path)
         if not self.get(context=context, path=path):
+            if not expr.left.find(context):
+                context = self.set(context, expr.left, {})
             set_value = self._new_node_setter(expr.right)
             for target in expr.left.find(context):
                 set_value(target, value)
