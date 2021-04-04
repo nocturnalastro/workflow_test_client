@@ -32,4 +32,4 @@ class MockServer:
         return self._lookup(url, UrlMethod.GET, None)
 
     def post(self, url, args):
-        return self._lookup(url, UrlMethod.GET, args)
+        return self._lookup(url, UrlMethod.POST, args)
