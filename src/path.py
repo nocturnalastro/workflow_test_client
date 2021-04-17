@@ -41,18 +41,20 @@ class JSONPath:
         )
         raise UnhandledSetter(f"No setter for type {node_expr_type}")
 
-    def set(self, context, path, value):
-        context = deepcopy(context)
+    def _set(self, context, path, value):
         expr = self._get_expr(path)
         if not self.get(context=context, path=path):
             if not expr.left.find(context):
-                context = self.set(context, expr.left, {})
+                context = self._set(context, expr.left, {})
             set_value = self._new_node_setter(expr.right)
             for target in expr.left.find(context):
                 set_value(target, value)
             return context
         else:
             return expr.update(context, value)
+
+    def set(self, context, path, value):
+        return self._set(deepcopy(context), path, deepcopy(value))
 
 
 def evaluator(_x=None):

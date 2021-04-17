@@ -1,4 +1,5 @@
 from . import registry
+from . import history
 from . import utils
 from . import path
 from . import stack

@@ -33,6 +33,9 @@ class Task:
             else []
         )
 
+    def __eq__(self, o: object) -> bool:
+        return isinstance(o, Task) and self._task == o._task
+
     def _process_validator(self, validator: str):
         return Validator(
             validator_name=validator, execution_context=self._execution_context
@@ -95,6 +98,30 @@ class Screen(Task):
             )
         )
 
+    def _process_events(self):
+        for n, event in enumerate(self._events):
+            if event.action == "submit":
+                self._process_field_validators()
+                if not self.errors:
+                    self._complete = True
+            elif event.action == "next":
+                self._complete = True
+            elif event.action == "update":
+                self._execution_context.update_result(event.payload)
+            elif event.action == "back":
+                self._execution_context.register_event("back", data={})
+        self._events.clear()
+
+        if self._complete:
+            self._execution_context.merge_result_into_state()
+            self._execution_context._event_handler(
+                "save_history", {"execution_context": self._execution_context}
+            )
+
+    def publish_result(self):
+        super().publish_result()
+        self._process_events()
+
     def set(self, field, value):
         components = self.get_components()
         components[field].set_value(value)
@@ -104,7 +131,6 @@ class Screen(Task):
         components = self.get_components()
         components[button_name].click()
         self.publish_result()
-        self._process_events()
 
     @property
     def errors(self):
@@ -129,17 +155,6 @@ class Screen(Task):
     def _process_field_validators(self):
         for component in self.get_components().values():
             component.validate()
-
-    def _process_events(self):
-        for n, event in enumerate(self._events):
-            if event.action == "submit":
-                self._process_field_validators()
-                if not self.errors:
-                    self._complete = True
-            elif event.action == "next":
-                self._complete = True
-            elif event.action == "update":
-                self._execution_context.update_result(event.payload)
 
 
 class JsonRpc(Task):
@@ -234,6 +249,7 @@ class Flow(Task):
             f"{self._task['name']}.{t['name']}" for t in self._task["tasks"]
         ]
         self._config = self._task["config"]
+        self._interupt_tasks = set()
 
     def _get_task_instance(self, task, execution_context):
         return TASK_TYPES[task["type"]](task=task, execution_context=execution_context)
@@ -260,34 +276,42 @@ class Flow(Task):
             result = utils.deepmerge(result, self._process_instruction(path))
         return result
 
-    def _input_task_iter(self, interupt_tasks=None):
-        if interupt_tasks is None:
-            interupt_tasks = set()
+    def _input_task_iter(
+        self,
+        starting_position=0,
+        starting_context=None,
+    ):
 
-        for task in self._task["tasks"]:
-            with self._execution_context.new_context() as context:
+        for position, task in enumerate(self._task["tasks"][starting_position:]):
+            if starting_context is None:
+                execution_context = self._execution_context.new_context(position)
+            else:
+                # This is used when moving backwards in a flow
+                execution_context = starting_context
+                starting_context = None
+
+            with execution_context as context:
                 inst = self._get_task_instance(task, context)
-                if inst.name in interupt_tasks:
+                if inst.name in self._interupt_tasks:
                     yield inst
                 while inst.requires_input:
                     yield inst
-
                 inst.run()
-
-                # if (
-                #     isinstance(inst, TASK_TYPES["event"])
-                #     and inst._task["action"] == "break"
-                # ):
-                #     self._actions.append("break")
-                #     break
-
             # Add task result to flow context
             self._execution_context.update_state(context.result)
         self.set_as_complete()
 
+    def re_init_iter(self, execution_context):
+        self._task_iter = self._input_task_iter(
+            starting_context=execution_context,
+            starting_position=execution_context.position,
+        )
+
     def get_task(self, interupt_tasks=None):
+        if interupt_tasks:
+            self._interupt_tasks = interupt_tasks
         if self._task_iter is None:
-            self._task_iter = self._input_task_iter(interupt_tasks)
+            self._task_iter = self._input_task_iter()
         return next(self._task_iter)
 
     def get_task_names(self):

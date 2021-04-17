@@ -43,6 +43,12 @@ workflow_str = """
                 },
                 "size": null
             },
+            "back_button": {
+                "type": "button",
+                "action": "back",
+                "style": "primary",
+                "text": "Back"
+            },
             "next_button_next_primary_reset_save_false_buttons": {
                 "type": "button",
                 "action": "next",
@@ -91,6 +97,11 @@ workflow_str = """
                                 {
                                     "name": "next_button_next_primary_reset_save_false_buttons",
                                     "destination_path": "$.save"
+                                }
+                            ],
+                            [
+                                {
+                                    "name": "back_button"
                                 }
                             ],
                             [
@@ -145,7 +156,6 @@ s = MockServer()
 s.register_handler(workflow_url, Methods.GET, lambda _: workflow_str)
 
 w = TestClient(s, workflow_url)
-# # w.set_task_breakpoint("SaveMessage")
 t = w.get_task()
 t_old = t
 t = w.get_task()
@@ -157,6 +167,27 @@ t = w.get_task()
 assert t == t_old
 t.set("input_Input message here", "Hello :)")
 t.click("submit_button")
+t_old = t
+t = w.get_task()
+assert t != t_old
+t_back_target = t_old
+t.click("back_button")
+t_old = t
+t = w.get_task()
+assert t != t_old
+assert t == t_back_target
+t.set("input_Input message here", "Hello :)")
+t.click("submit_button")
+t_old = t
 t = w.get_task()
 assert t != t_old
 t.click("next_button_next_primary_save_message_save_true_buttons")
+w.set_task_breakpoint("Restart")  # Grab redirect which should be next
+t_old = t
+t = w.get_task()
+assert t != t_old
+assert t.task_type == "redirect"
+t_old = t
+t = w.get_task()  # Reload flow
+assert t != t_old
+assert t.name == "InputMessage"

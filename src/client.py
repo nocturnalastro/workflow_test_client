@@ -2,10 +2,10 @@ from collections import namedtuple
 
 from .exceptions import InvalidEmptyStackOperation
 from .parser import json_parser
-from .stack import Stack, VirtualStack
+from .stack import EmptyStack, Stack, VirtualStack
 from .tasks import TASK_TYPES
 from .context import ExecutionContext
-from .server import MockServerErrorResponce
+from . import history
 
 Repos = namedtuple("Repos", ("components", "validators", "flows"))
 
@@ -23,6 +23,7 @@ class TestClient:
 
     def _initialise_flow(self, parts):
         self._starting_flow = parts.starting_flow
+        self._history_stack = VirtualStack(EmptyStack())
         self._initial_context = ExecutionContext(
             initial_state=parts.context,
             repos=Repos(
@@ -31,6 +32,7 @@ class TestClient:
                 flows=parts.flows,
             ),
             event_handler=self._handle_event,
+            history_handle=self._history_stack,
         )
 
         TASK_TYPES["flow"](
@@ -40,10 +42,18 @@ class TestClient:
 
         self.context_stack = VirtualStack(Stack(self._initial_context))
         self._initial_context.register_stack_handle(self.context_stack)
+        self._initial_context.start()
 
     def _handle_event(self, type, data):
         if type == "redirect":
             self._load_workflow(data["url"])
+        if type == "save_history":
+            self._history_stack.push(
+                history.Entry(execution_context=data["execution_context"])
+            )
+
+    def set_task_breakpoint(self, task_name):
+        self._interupt_tasks.add(task_name)
 
     def get_task(self):
         while True:  # Keep doing up the call stack until we reach the end
@@ -52,7 +62,7 @@ class TestClient:
                 return context.flow.get_task(self._interupt_tasks)
             except StopIteration as s:
                 if context == self._initial_context:
-                    self.context_stack.pop()
+                    self._initial_context.stop()
                 continue
             except InvalidEmptyStackOperation:
                 return None
